@@ -24,8 +24,10 @@ class MarketAlert:
             raise ValueError("threshold must be positive")
         if self.type == AlertType.PCT and self.lookback < 1:
             raise ValueError("pct alerts require lookback >= 1")
-        if self.type == AlertType.STDEV and self.sample_size < 2:
-            raise ValueError("stdev alerts require sample_size >= 2")
+        if self.type == AlertType.STDEV and self.sample_size < 3:
+            # check_stdev excludes the newest tick from the baseline, leaving
+            # prices[1:] to take a stdev over -- that needs 2 of its own points
+            raise ValueError("stdev alerts require sample_size >= 3")
 
 
 @dataclass(frozen=True)
@@ -67,9 +69,11 @@ def markets_from_tickers(tickers: list[str], alert: MarketAlert = None) -> list[
 
 # Paste your resolved tickers here:
 TICKERS = [
-    "KXFED-24DEC-T",
-    "KXRECESSION-24",
-    "KXHORMUZNORM-26MAR17-B270401",
+    "KXMACHADOVENEZUELA-26JUN29-OCT01",
+    "KXVENEZOILCOS-27JAN01-SHEL",
+    "KXVENEZOILCOS-27JAN01-EXXO",
+    "KXVENEZOILCOS-27JAN01-CONO",
+    "KXLEAVEOPEC-28JAN01-27JAN01",
 ]
 
 CONFIG = PipelineConfig(

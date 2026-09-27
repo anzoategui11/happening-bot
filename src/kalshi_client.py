@@ -5,6 +5,39 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 API_PATH = "/trade-api/v2"
 
+# Kalshi moved to dollar-denominated price fields and left the old integer-cent
+# keys in the payload as permanently-null placeholders, so reading last_price or
+# yes_bid silently yields None. Map the old names onto the live ones.
+_PRICE_FIELDS = {
+    "last_price": "last_price_dollars",
+    "previous_price": "previous_price_dollars",
+    "yes_bid": "yes_bid_dollars",
+    "yes_ask": "yes_ask_dollars",
+    "no_bid": "no_bid_dollars",
+    "no_ask": "no_ask_dollars",
+    "volume": "volume_fp",
+    "volume_24h": "volume_24h_fp",
+    "open_interest": "open_interest_fp",
+    "liquidity": "liquidity_dollars",
+}
+
+def _num(value):
+    """Dollar and size fields arrive as decimal strings; prices are 0.00-1.00."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+def _normalise_market(market):
+    """Fill the legacy price keys from the current dollar-denominated ones."""
+    out = dict(market)
+    for legacy, current in _PRICE_FIELDS.items():
+        if out.get(legacy) in (None, ""):
+            out[legacy] = _num(out.get(current))
+    return out
+
 def _load_pem(path):
     """Load a private key, tolerating the single-line PEM that Kalshi serves.
 
@@ -50,5 +83,6 @@ class KalshiClient:
         return r.json()
 
     def get_market(self, ticker):
-        return self.get(f"/markets/{ticker}")["market"]
+        return _normalise_market(self.get(f"/markets/{ticker}")["market"])
+
 
