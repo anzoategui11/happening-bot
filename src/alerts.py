@@ -15,10 +15,14 @@ def check_pct(storage, ticker, threshold, lookback):
     return None
 
 def check_stdev(storage, ticker, threshold, sample_size):
+    # misconfiguration, not warm-up: no amount of polling can satisfy this
+    if sample_size < 3:
+        raise ValueError(
+            f"stdev needs sample_size >= 3, got {sample_size}: the newest tick is "
+            "excluded from the baseline, so the baseline needs 2 points of its own"
+        )
     prices = storage.get_recent(ticker, sample_size)
-    # the newest tick is excluded from the baseline, so the baseline needs at
-    # least two points of its own for a standard deviation to exist
-    if len(prices) < max(sample_size, 3):
+    if len(prices) < sample_size:
         return None
     mean, sd = statistics.mean(prices[1:]), statistics.stdev(prices[1:])
     if sd == 0:
