@@ -16,6 +16,3 @@ airflow-webserver.pid
 simple_auth_manager_passwords.json.generated
 
 test_storage.py
-
-# stray nested clone of the origin repo — the project root is the real repo
-happening-bot/
