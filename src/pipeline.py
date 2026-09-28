@@ -113,6 +113,11 @@ class Pipeline:
         if thin:
             log.warning("%s: thin market, alerts may be unreliable (%s)", ticker, thin)
 
+        # Keep the trade series current. The polled series below is for pct
+        # alerts; this is the basis for stdev. ON CONFLICT makes the overlap
+        # free, so re-fetching an already-seen trade costs nothing.
+        self.storage.insert_trades(ticker, self.kalshi.get_trades(ticker))
+
         # Insert before checking: check_pct reads prices[0] as the current tick,
         # so the sample under evaluation has to already be in the series.
         self.storage.insert_tick(ticker, price)
@@ -120,7 +125,9 @@ class Pipeline:
         alert = market.alert
         if alert.type == AlertType.PCT:
             return check_pct(self.storage, ticker, alert.threshold, alert.lookback)
-        return check_stdev(self.storage, ticker, alert.threshold, alert.sample_size)
+        return check_stdev(self.storage, ticker, alert.threshold, alert.sample_size,
+                           warn=lambda msg: self._report_problem(ticker + ":stdev", msg))
+
 
     # ── sending ──────────────────────────────────────────────────────
 
@@ -151,6 +158,33 @@ class Pipeline:
             self.notify(f"pipeline problem: {exc}")
         except Exception:
             log.exception("%s: could not send problem notice", ticker)
+
+    # ── backfill ────────────────────────────────────────────────────
+
+    def backfill_trades(self, hours=24, limit=200):
+        """Seed the trade series from Kalshi history. Idempotent; safe to re-run.
+
+        Stores only trades that actually executed. Gaps are left as gaps on
+        purpose: padding a sparse series with the last known price shrinks the
+        baseline's standard deviation, which inflates every z-score and causes
+        exactly the false alerts the check exists to avoid.
+        """
+        total = {}
+        for market in self.config.markets:
+            ticker = market.ticker
+            try:
+                trades = self.kalshi.get_trades(ticker, limit=limit)
+            except Exception as e:
+                log.warning("%s: trade backfill failed: %s", ticker, e)
+                total[ticker] = None
+                continue
+            cutoff = time.time() - hours * 3600
+            window = [t for t in trades if t["ts"].timestamp() >= cutoff]
+            added = self.storage.insert_trades(ticker, window)
+            total[ticker] = added
+            log.info("%s: %d trade(s) in the last %dh, %d new, %d stored total",
+                     ticker, len(window), hours, added, self.storage.count_trades(ticker))
+        return total
 
     # ── standalone loop ──────────────────────────────────────────────
 

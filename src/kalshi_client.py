@@ -1,4 +1,5 @@
 import time, base64, re, requests
+from datetime import datetime
 from urllib.parse import urlparse
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -88,5 +89,25 @@ class KalshiClient:
 
     def get_market(self, ticker):
         return _normalise_market(self.get(f"/markets/{ticker}")["market"])
+
+    def get_trades(self, ticker, limit=200):
+        """Executed trades, newest first, as {trade_id, ts, price}.
+
+        These are real observations at their own timestamps, unlike a poll of
+        the last price, which repeats a stale value between trades. Trades with
+        no yes-side price are dropped rather than stored as null.
+        """
+        out = []
+        for t in self.get(f"/markets/trades?ticker={ticker}&limit={limit}").get("trades", []):
+            price = _num(t.get("yes_price_dollars"))
+            created = t.get("created_time")
+            if price is None or not t.get("trade_id") or not created:
+                continue
+            out.append({
+                "trade_id": t["trade_id"],
+                "ts": datetime.fromisoformat(created.replace("Z", "+00:00")),
+                "price": price,
+            })
+        return out
 
 
