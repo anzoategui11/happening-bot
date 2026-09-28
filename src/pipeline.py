@@ -37,6 +37,10 @@ DEPTH_MIN_VOLUME_24H = 1.0      # contracts traded in the last 24h
 DEPTH_MIN_OPEN_INTEREST = 1.0   # contracts held across the book
 DEPTH_MIN_BID_SIZE = 1.0        # contracts resting at the top of book
 
+# Force a trade re-fetch at least this often, in cycles, regardless of whether
+# the market looks unchanged. 15 cycles at a 2 min interval is ~30 min.
+TRADE_REFRESH_EVERY_CYCLES = 15
+
 
 def depth_warning(market):
     """Describe why a market is too thin to trust, or None if it looks healthy.
@@ -64,6 +68,10 @@ class Pipeline:
         # ticker -> monotonic timestamp of the last message we sent
         self._last_alerted = {}
         self._last_problem = {}
+        # ticker -> (last_price, volume) at the last trade fetch, used to skip
+        # fetches for a market that has not traded
+        self._last_seen = {}
+        self._cycles_since_trades = {}
         self._running = True
 
     # ── one cycle ────────────────────────────────────────────────────
@@ -94,7 +102,9 @@ class Pipeline:
             if alert and self._in_cooldown(market.ticker):
                 log.debug("%s: alert suppressed, still in cooldown", market.ticker)
             elif alert:
-                sent.append(self._deliver(market.ticker, alert))
+                delivered = self._deliver(market.ticker, alert)
+                if delivered is not None:
+                    sent.append(delivered)
         return sent
 
     def _poll_market(self, market):
@@ -113,10 +123,21 @@ class Pipeline:
         if thin:
             log.warning("%s: thin market, alerts may be unreliable (%s)", ticker, thin)
 
-        # Keep the trade series current. The polled series below is for pct
-        # alerts; this is the basis for stdev. ON CONFLICT makes the overlap
-        # free, so re-fetching an already-seen trade costs nothing.
-        self.storage.insert_trades(ticker, self.kalshi.get_trades(ticker))
+        # Trades are only re-fetched when the market has actually traded. A
+        # trade necessarily moves lifetime volume, so an unchanged
+        # (last_price, volume) pair means there is nothing new to collect, and
+        # the market fetch above already gave us that pair for free. The
+        # periodic refresh is a backstop: volume is reported to 2 decimals, so
+        # a very small trade could leave it unchanged.
+        signature = (price, data.get("volume"))
+        cycles = self._cycles_since_trades.get(ticker, 0) + 1
+        if signature != self._last_seen.get(ticker) or cycles >= TRADE_REFRESH_EVERY_CYCLES:
+            self.storage.insert_trades(ticker, self.kalshi.get_trades(ticker))
+            self._last_seen[ticker] = signature
+            self._cycles_since_trades[ticker] = 0
+        else:
+            self._cycles_since_trades[ticker] = cycles
+            log.debug("%s: no trade since last fetch (volume %s), skipping", ticker, signature[1])
 
         # Insert before checking: check_pct reads prices[0] as the current tick,
         # so the sample under evaluation has to already be in the series.
@@ -127,7 +148,6 @@ class Pipeline:
             return check_pct(self.storage, ticker, alert.threshold, alert.lookback)
         return check_stdev(self.storage, ticker, alert.threshold, alert.sample_size,
                            warn=lambda msg: self._report_problem(ticker + ":stdev", msg))
-
 
     # ── sending ──────────────────────────────────────────────────────
 
@@ -140,9 +160,20 @@ class Pipeline:
         return time.monotonic() - last < self.config.alert_cooldown_seconds
 
     def _deliver(self, ticker, message):
-        """Send an alert and start this ticker's cooldown."""
+        """Send an alert, starting the cooldown only once it has been delivered.
+
+        A delivery failure must not abort the cycle -- the markets after this
+        one still need polling, and an alert that never arrived must not be
+        silenced for the whole cooldown. Returns the message, or None if the
+        send failed.
+        """
+        try:
+            self.notify(message)
+        except Exception:
+            log.exception("%s: alert NOT delivered, will retry next cycle: %s",
+                          ticker, message)
+            return None
         self._last_alerted[ticker] = time.monotonic()
-        self.notify(message)
         log.info("alert: %s", message)
         return message
 

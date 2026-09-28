@@ -76,9 +76,9 @@ def markets_from_tickers(tickers: list[str], alert: MarketAlert = None) -> list[
 # once -- the pipeline refuses to track a market with no last_price.
 TICKERS = [
     "KXMACHADOVENEZUELA-26JUN29-OCT01",
-    "KXVENEZOILCOS-27JAN01-SHEL",
-    "KXVENEZOILCOS-27JAN01-EXXO",
-    "KXVENEZOILCOS-27JAN01-CONO",
+    "KXVENEZUELALEADER-26DEC31-NMAD",
+    "KXUSAIRANAGREEMENT-27-27MAR",
+    "KXALIENS-27",
 ]
 
 CONFIG = PipelineConfig(

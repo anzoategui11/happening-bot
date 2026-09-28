@@ -1,7 +1,16 @@
 import statistics
 
 def check_pct(storage, ticker, threshold, lookback):
+    """Percentage move against the polled series, not the trade series.
+
+    A poll of the last traded price repeats a stale value between trades, which
+    makes it useless for measuring variance -- but it is the right basis for
+    this check, because it answers "how far has the price moved in the last
+    `lookback` samples" and the *change* is real information even when most
+    samples in between are identical.
+    """
     prices = storage.get_recent(ticker, lookback + 1)
+
     if len(prices) <= lookback:
         return None
     current, past = prices[0], prices[-1]
