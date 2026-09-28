@@ -19,6 +19,10 @@ _PRICE_FIELDS = {
     "volume_24h": "volume_24h_fp",
     "open_interest": "open_interest_fp",
     "liquidity": "liquidity_dollars",
+    "yes_bid_size": "yes_bid_size_fp",
+    "yes_ask_size": "yes_ask_size_fp",
+    "no_bid_size": "no_bid_size_fp",
+    "no_ask_size": "no_ask_size_fp",
 }
 
 def _num(value):

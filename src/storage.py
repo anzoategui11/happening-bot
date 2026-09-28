@@ -2,8 +2,23 @@ import psycopg2
 
 class Storage:
     def __init__(self, dsn, max_samples=50):
+        self.dsn = dsn
         self.conn = psycopg2.connect(dsn)
         self.max_samples = max_samples
+
+    def reconnect(self):
+        """Re-establish the connection.
+
+        DATABASE_URL points at Supabase's *transaction* pooler (port 6543),
+        which is free to sever idle connections. A long-running poller that
+        sits idle between polls will eventually get OperationalError, and the
+        only recovery is a fresh connection.
+        """
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+        self.conn = psycopg2.connect(self.dsn)
 
     def insert_tick(self, ticker, price):
         with self.conn.cursor() as cur:
