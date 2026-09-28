@@ -10,6 +10,7 @@ import signal
 import time
 
 import psycopg2
+import requests
 
 from alerts import check_pct, check_stdev
 from config import AlertType
@@ -77,7 +78,12 @@ class Pipeline:
     # ── one cycle ────────────────────────────────────────────────────
 
     def poll_once(self):
-        """Poll every configured market once. Returns the alerts sent."""
+        """Poll every configured market once. Returns the alerts sent.
+
+        Only *expected* per-market failures are absorbed here. Anything
+        unexpected is allowed to propagate: a bug should fail the Airflow task
+        loudly rather than be retried silently every two minutes forever.
+        """
         sent = []
         for market in self.config.markets:
             try:
@@ -87,6 +93,11 @@ class Pipeline:
                 # Surface it once per cooldown rather than every cycle.
                 self._report_problem(market.ticker, e)
                 continue
+            except requests.RequestException as e:
+                # Kalshi being unreachable or returning an error. Transient, so
+                # skip this market and try again next cycle.
+                log.warning("%s: Kalshi request failed: %s", market.ticker, e)
+                continue
             except psycopg2.OperationalError:
                 log.exception("database connection lost, reconnecting")
                 try:
@@ -94,10 +105,12 @@ class Pipeline:
                 except Exception:
                     log.exception("reconnect failed; skipping this cycle")
                 continue
-            except Exception:
-                # One bad ticker must not take the loop down.
-                log.exception("%s: poll failed", market.ticker)
-                continue
+            except psycopg2.Error:
+                # Non-connection database error: constraint violation, bad SQL,
+                # and so on. Retryable in principle, but it is a code or schema
+                # problem, so make it visible rather than swallowing it.
+                log.exception("%s: database error", market.ticker)
+                raise
 
             if alert and self._in_cooldown(market.ticker):
                 log.debug("%s: alert suppressed, still in cooldown", market.ticker)
@@ -211,7 +224,18 @@ class Pipeline:
                 continue
             cutoff = time.time() - hours * 3600
             window = [t for t in trades if t["ts"].timestamp() >= cutoff]
+            # Kalshi returns the newest `limit` trades, so a wide window on a
+            # busy market can be silently short: the oldest trade fetched may be
+            # newer than the cutoff, meaning older trades exist that we never saw.
+            if len(trades) >= limit:
+                oldest = min(t["ts"].timestamp() for t in trades)
+                if oldest > cutoff:
+                    log.warning(
+                        "%s: backfill window is %dh but the %d most recent trades only "
+                        "reach back %.1fh; older history needs a larger limit or a "
+                        "paged fetch", ticker, hours, limit, (time.time() - oldest) / 3600)
             added = self.storage.insert_trades(ticker, window)
+
             total[ticker] = added
             log.info("%s: %d trade(s) in the last %dh, %d new, %d stored total",
                      ticker, len(window), hours, added, self.storage.count_trades(ticker))
@@ -242,7 +266,15 @@ class Pipeline:
         )
         while self._running:
             started = time.monotonic()
-            self.poll_once()
+            try:
+                self.poll_once()
+            except Exception:
+                # poll_once deliberately lets unexpected errors through so a bug
+                # is visible. A long-running daemon should still outlive one, so
+                # this is the last resort -- CRITICAL with a traceback, not a
+                # quiet retry. Under Airflow there is no wrapper like this, so
+                # the same failure fails the task instead.
+                log.critical("cycle failed, continuing", exc_info=True)
             if not self._running:
                 break
             self._sleep_until(started + self.config.poll_interval_seconds)

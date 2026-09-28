@@ -77,6 +77,7 @@ def poll_markets():
     storage = Storage(
         os.environ["DATABASE_URL"],
         max_samples=CONFIG.max_stored_samples,
+        max_trades=CONFIG.max_stored_trades,
     )
 
     sent = Pipeline(kalshi, storage, CONFIG).poll_once()

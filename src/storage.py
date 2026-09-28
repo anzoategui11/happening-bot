@@ -82,3 +82,35 @@ class Storage:
         with self.conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM market_trades WHERE ticker=%s", (ticker,))
             return cur.fetchone()[0]
+
+    # ── database cap ────────────────────────────────────────────────
+
+    def prune_orphans(self, active_tickers):
+        """Delete rows for tickers no longer in the config.
+
+        Per-ticker retention only runs on insert, so removing a market from the
+        config stops the inserts but never removes its history. Without this
+        the tables grow by whatever every abandoned ticker ever accumulated.
+        """
+        active = list(active_tickers)
+        removed = {}
+        with self.conn.cursor() as cur:
+            for table in ("market_ticks", "market_trades"):
+                if active:
+                    cur.execute(
+                        f"DELETE FROM {table} WHERE NOT (ticker = ANY(%s))", (active,))
+                else:
+                    cur.execute(f"DELETE FROM {table}")
+                removed[table] = cur.rowcount
+        self.conn.commit()
+        return removed
+
+    def stats(self):
+        """Row counts per ticker, to check the cap is holding."""
+        out = {}
+        with self.conn.cursor() as cur:
+            for table in ("market_ticks", "market_trades"):
+                cur.execute(f"SELECT ticker, count(*) FROM {table} GROUP BY ticker")
+                out[table] = dict(cur.fetchall())
+        out["totals"] = {t: sum(v.values()) for t, v in out.items() if t != "totals"}
+        return out

@@ -42,12 +42,20 @@ class PipelineConfig:
     max_stored_samples: int
     markets: list[MarketConfig] = field(default_factory=list)
     alert_cooldown_seconds: int = 7200   # min silence per ticker between alerts
+    max_stored_trades: int = 500   # trade rows kept per ticker
 
     def __post_init__(self):
         if self.poll_interval_seconds < 1:
             raise ValueError("poll_interval_seconds must be at least 1")
         if self.alert_cooldown_seconds < 0:
             raise ValueError("alert_cooldown_seconds cannot be negative")
+        if self.max_stored_samples < 1:
+            raise ValueError("max_stored_samples must be at least 1")
+        if self.max_stored_trades < 3:
+            # the stdev baseline needs sample_size trades, and a stdev market
+            # needs sample_size >= 3, so fewer than 3 stored trades can never
+            # satisfy any valid configuration
+            raise ValueError("max_stored_trades must be at least 3")
         tickers = [m.ticker for m in self.markets]
         if len(tickers) != len(set(tickers)):
             raise ValueError("duplicate ticker in markets list")
@@ -60,6 +68,14 @@ class PipelineConfig:
                     f"{m.ticker}: max_stored_samples ({self.max_stored_samples}) is too small "
                     f"for its alert, which needs at least {needed} stored samples — "
                     f"raise max_stored_samples or lower this market's lookback/sample_size"
+                )
+            if m.alert.type == AlertType.STDEV and m.alert.sample_size > self.max_stored_trades:
+                # check_stdev reads the trade series, which is retained under a
+                # different cap, so the two limits have to agree per market
+                raise ValueError(
+                    f"{m.ticker}: max_stored_trades ({self.max_stored_trades}) is too small "
+                    f"for a {m.alert.sample_size}-trade stdev baseline — raise "
+                    f"max_stored_trades or lower sample_size"
                 )
 
 
@@ -86,6 +102,7 @@ CONFIG = PipelineConfig(
     max_stored_samples=50,   # keep >= the largest lookback/sample_size used below
     markets=markets_from_tickers(TICKERS),
     alert_cooldown_seconds=7200,   # 2h: a sustained move alerts once, not every poll
+    max_stored_trades=500,   # ~5 days of history on a 100-trade/day market
     # To give one or more tickers different thresholds instead of the
     # shared default, build them separately and combine, e.g.:
     #   markets=markets_from_tickers(TICKERS[:-1])
