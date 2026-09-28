@@ -24,8 +24,17 @@ class BlockedIO(RuntimeError):
 
 
 @pytest.fixture(autouse=True)
-def no_real_io(monkeypatch):
-    """Fail loudly rather than let a test hit Supabase or Kalshi."""
+def no_real_io(request, monkeypatch):
+    """Fail loudly rather than let a test hit Supabase or Kalshi.
+
+    Tests marked `allow_db` opt out, because the storage tests need a real
+    Postgres -- there is nothing meaningful to assert about a DELETE against a
+    mock cursor. They are still fenced in by their own module's DSN guard.
+    """
+    if request.node.get_closest_marker("allow_db"):
+        yield
+        return
+
     def blocked(*_args, **_kwargs):
         raise BlockedIO(
             "test attempted real I/O. Use the fakes from conftest "
@@ -36,6 +45,7 @@ def no_real_io(monkeypatch):
     for name in ("request", "get", "post"):
         monkeypatch.setattr(requests, name, blocked)
         monkeypatch.setattr(requests.Session, name, blocked, raising=False)
+    yield
 
 
 # ── fakes ────────────────────────────────────────────────────────────

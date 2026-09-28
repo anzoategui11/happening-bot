@@ -51,8 +51,14 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
+    ports:
+      # Published on 5433 so the storage tests can reach a throwaway database
+      # from the host. 5433 rather than 5432 to avoid colliding with anything
+      # local. The test database is created by the init script below.
+      - "5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # Name user and db: a bare "pg_isready" passes while initdb is still
       # creating the cluster, which then lets Airflow start too early.

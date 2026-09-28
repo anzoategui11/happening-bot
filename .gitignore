@@ -21,5 +21,3 @@ simple_auth_manager_passwords.json.generated
 
 # editor / agent tooling
 .opencode/
-
-test_storage.py

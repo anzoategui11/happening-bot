@@ -49,6 +49,23 @@ loudly instead of writing to live Supabase or hitting Kalshi. Everything runs
 against the fakes in `conftest.py`. Keep it that way — a test needing the
 network belongs in a manual script, not here.
 
+**One exception: `tests/test_storage.py` needs a real database.** Asserting a
+`DELETE` against a mock cursor tests the mock, and the behaviour that matters
+here — retention pruning, newest-first ordering, `ON CONFLICT` dedupe — *is*
+the SQL. Those tests carry `@pytest.mark.allow_db` to opt out of the guard, and
+they are fenced in harder:
+
+- The DSN comes from `STORAGE_TEST_DSN`, defaulting to
+  `postgresql://airflow:airflow@localhost:5433/happening_bot_test`. It never
+  falls back to `DATABASE_URL`.
+- The database name must be exactly `happening_bot_test`, or the module raises
+  `UsageError` at collection. A misconfiguration is a loud failure, not a skip.
+- The whole module skips, cleanly and once, if no throwaway database is
+  reachable — so the suite still runs with no Docker.
+
+Bring one up with `docker compose up -d postgres`, which now publishes 5433
+and creates the test database from `docker/postgres-init/`.
+
 `tests/test_suite_guarantees.py` is meta: it asserts the suite can still go
 red, by reintroducing historical bugs. Worth extending when you add behaviour
 that was previously unguarded.
@@ -135,6 +152,10 @@ PEM is a live trading credential.
   you find out by opening the UI. There is no alert-on-error path.
 - **The BotFather setup walkthrough is gone.** It lived in `test_telegram.py`,
   which was deleted. `discover_chat_id` is the only way to recover a `chat_id`.
+- **A bare filename in `.gitignore` matches at any depth.** It briefly had
+  `test_storage.py`, left over from a deleted root-level script, and silently
+  swallowed `tests/test_storage.py` — a test file that existed and ran but was
+  never committed. Anchor such patterns with a leading `/`.
 - **Trade-fetch batching is a no-op under Airflow.** It keeps state in memory
   and each DAG run is a fresh process, so the state never accumulates. It only
   helps `run_forever`. Persisting a watermark would fix it; judged not worth
@@ -146,17 +167,22 @@ PEM is a live trading credential.
 - **`depth_warning` thresholds are guesses**, flagged TODO in
   `src/pipeline.py`. `liquidity_dollars` is deliberately unused: Kalshi
   returned `0.0000` for all 60 markets sampled.
-- **`src/storage.py` is untested.** Its SQL runs only against the live
-  database, since mocking a cursor would test the mock. Retention and orphan
-  pruning are covered by `main.py --stats` / `--prune` instead.
+- **`src/storage.py` needed a real database to test.** Now covered by
+  `tests/test_storage.py`; see the Tests section for how the throwaway
+  Postgres is fenced in.
+- **`Storage.get_recent` never commits.** A `SELECT` leaves the connection
+  idle-in-transaction holding an `ACCESS SHARE` lock, which is why the storage
+  tests must roll back and close in teardown or the next `TRUNCATE` blocks
+  forever. Harmless through a pooler, but it pins a transaction per connection
+  for the whole poll interval. Setting `autocommit` would fix it; not done
+  because it changes the failure mode of `insert_tick`'s two-statement
+  insert-then-prune.
 - **Twilio/WhatsApp vars are configured but unused.** No `src/whatsapp.py`
   exists — only a stale `src/__pycache__/whatsapp.*.pyc` from a deleted
   module. Alerts are Telegram-only.
 - **`check_keys.py` reaches into `KalshiClient._headers` and `_load_pem`**, both
   private. Fine for a diagnostic, but it's a sign these should be public if a
   second caller ever needs them.
-- **`.gitignore` still lists `test_storage.py`**, a dead entry — the file was
-  deleted long ago.
 
 ## Working notes
 
