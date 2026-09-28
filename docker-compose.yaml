@@ -1,0 +1,116 @@
+# Airflow running the happening-bot DAG.
+#
+#   docker compose up -d --build
+#   docker compose run --rm airflow-init    # one-time: create/migrate the metadata DB
+#   open http://localhost:8080              # user: airflow / password: airflow
+#
+# The project is bind-mounted, not baked into the image, so editing dags/ or
+# src/ needs only a restart -- no rebuild. Secrets come from .env (gitignored);
+# nothing secret is committed here.
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: happening-bot-airflow:2.10.5
+  environment: &airflow-env
+    # Metadata DB: Airflow's own Postgres, NOT the Supabase instance holding
+    # market_ticks. Sharing them would mix scheduler bookkeeping with price
+    # history, and Supabase's port 6543 transaction pooler is wrong for Airflow,
+    # which holds a long-lived connection and wants a direct one.
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN_MAX_RETRIES: "5"
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/happening-bot/dags
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: "60"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+  env_file:
+    - .env          # DATABASE_URL, TELEGRAM_*, KALSHI_*, AIRFLOW_FERNET_KEY, ...
+  volumes:
+    # The Kalshi PEM is read through this mount, never baked into a layer.
+    - .:/opt/happening-bot
+
+x-needs-db: &needs-db
+  postgres:
+    condition: service_healthy
+
+x-needs-migrated: &needs-migrated
+  postgres:
+    condition: service_healthy
+  # The scheduler and webserver both fail on start against an unmigrated
+  # metadata DB, so they wait for the one-shot migrate to finish.
+  airflow-init:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Name user and db: a bare "pg_isready" passes while initdb is still
+      # creating the cluster, which then lets Airflow start too early.
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  airflow-init:
+    <<: *airflow-common
+    # "airflow db migrate" is idempotent, so re-running is safe.
+    command: airflow db migrate
+    # Root, because it may need to write into the bind-mounted project dir.
+    user: "0:0"
+    restart: "no"
+    depends_on: *needs-db
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: airflow webserver
+    ports:
+      - "8080:8080"
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on: *needs-migrated
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: airflow scheduler
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on: *needs-migrated
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\" || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 90s
+
+  # Optional: the standalone poll loop, for comparison against the DAG. Airflow
+  # owns the schedule when the DAG is running -- never start both, or every tick
+  # is stored twice.
+  standalone:
+    profiles: ["standalone"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: happening-bot-airflow:2.10.5
+    command: python main.py
+    env_file:
+      - .env
+    volumes:
+      - .:/opt/happening-bot
+    depends_on: *needs-migrated
+
+volumes:
+  postgres-data:

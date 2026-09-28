@@ -47,12 +47,30 @@ except ImportError:
     log.warning("python-dotenv not installed; relying on environment variables")
 
 
+def _private_key_path():
+    """Resolve KALSHI_PRIVATE_KEY_PATH, which is written relative to the repo root.
+
+    Airflow runs a task with a working directory of its own choosing, so a bare
+    filename from .env would not resolve inside the container.
+    """
+    path = os.environ["KALSHI_PRIVATE_KEY_PATH"]
+    if os.path.isabs(path):
+        return path
+    resolved = os.path.join(_PROJECT_ROOT, path)
+    if not os.path.exists(resolved):
+        raise FileNotFoundError(
+            f"KALSHI_PRIVATE_KEY_PATH={path!r} not found at {resolved}. "
+            "It is resolved relative to the project root, not the task cwd."
+        )
+    return resolved
+
+
 @task
 def poll_markets():
     """One poll cycle. Returns the alerts sent, which shows up as an XCom."""
     kalshi = KalshiClient(
         os.environ["KALSHI_KEY_ID"],
-        os.environ["KALSHI_PRIVATE_KEY_PATH"],
+        _private_key_path(),
     )
     # max_stored_samples must come from config or the retention window the
     # alerts are validated against is not the one Storage applies.
