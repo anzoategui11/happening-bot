@@ -16,4 +16,10 @@ airflow.cfg
 airflow-webserver.pid
 simple_auth_manager_passwords.json.generated
 
+# pytest
+.pytest_cache/
+
+# editor / agent tooling
+.opencode/
+
 test_storage.py
