@@ -18,6 +18,8 @@ from kalshi_client import API_PATH, KalshiClient, _load_pem, _normalise_market, 
 # ── _num ─────────────────────────────────────────────────────────────
 
 class TestNum:
+    """_num converts Kalshi's stringy numbers, and nulls them out safely."""
+
     @pytest.mark.parametrize("raw,expected", [
         ("0.5800", 0.58),
         ("0", 0.0),
@@ -41,6 +43,8 @@ class TestNum:
 # ── _normalise_market ────────────────────────────────────────────────
 
 class TestNormaliseMarket:
+    """Back-fill the legacy price keys from the live dollar fields."""
+
     @pytest.fixture
     def raw(self):
         return {
@@ -104,6 +108,8 @@ def pem_bytes():
 
 
 class TestLoadPem:
+    """_load_pem tolerates the single-line, ragged PEMs Kalshi hands out."""
+
     def test_reads_a_normal_multiline_pem(self, pem_bytes):
         assert _load_pem(_write(pem_bytes)) is not None
 
@@ -203,6 +209,7 @@ class TestSigning:
 
 
 def _write(data):
+    """Write bytes to a temp .pem file and return its path (caller cleans up)."""
     import tempfile, os
     fd, path = tempfile.mkstemp(suffix=".pem")
     with os.fdopen(fd, "wb") as f:

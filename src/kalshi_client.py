@@ -1,3 +1,12 @@
+"""Signed REST client for Kalshi, plus price-field normalisation.
+
+Kalshi authenticates every request with an RSA-PSS signature over
+"<timestamp><method><path>". The client also papers over a Kalshi quirk: the
+legacy integer-cent price keys are still present in responses but are
+permanently null, so `_normalise_market` back-fills them from the current
+dollar-denominated fields.
+"""
+
 import time, base64, re, requests
 from datetime import datetime
 from urllib.parse import urlparse
@@ -60,6 +69,8 @@ def _load_pem(path):
     return serialization.load_pem_private_key(raw, password=None)
 
 class KalshiClient:
+    """Minimal signed GET client for the Kalshi trade API."""
+
     def __init__(self, key_id, private_key_path, base_url="https://api.elections.kalshi.com" + API_PATH):
         self.key_id = key_id
         self.base_url = base_url
@@ -83,6 +94,7 @@ class KalshiClient:
 
     def get(self, path):
         """Signed GET. Returns the parsed JSON body."""
+        # timeout is bounded so a hung request cannot stall the whole poll cycle.
         r = requests.get(self.base_url + path, headers=self._headers("GET", path), timeout=15)
         r.raise_for_status()
         return r.json()

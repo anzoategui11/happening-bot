@@ -21,6 +21,7 @@ from conftest import FakeKalshi, FakeStorage, Recorder, config_for, healthy_mark
 
 
 def build(markets, kalshi=None, storage=None, notify=None, **cfg):
+    """Assemble a Pipeline over fakes; **cfg overrides config_for fields."""
     k = kalshi or FakeKalshi(markets={m["ticker"]: m for m in markets})
     s = storage or FakeStorage()
     p = Pipeline(k, s, config_for([m["ticker"] for m in markets], **cfg), notify=notify or Recorder())
@@ -30,6 +31,8 @@ def build(markets, kalshi=None, storage=None, notify=None, **cfg):
 # ── storing and silence ──────────────────────────────────────────────
 
 class TestPolling:
+    """A cycle stores a tick, stays quiet until warm, and survives bad markets."""
+
     def test_stores_a_tick_each_cycle(self):
         p, k, s, _ = build([healthy_market("A")])
         p.poll_once()
@@ -90,7 +93,10 @@ class TestPolling:
 # ── cooldown ─────────────────────────────────────────────────────────
 
 class TestCooldown:
+    """A sustained move alerts once, not on every poll."""
+
     def _warmed(self, notify=None, **cfg):
+        """Poll 11 flat cycles so the lookback window has a baseline."""
         markets = [healthy_market("A")]
         s = FakeStorage()
         p, k, _, rec = build(markets, storage=s, notify=notify or Recorder(), **cfg)
@@ -135,6 +141,8 @@ class TestCooldown:
 # ── delivery failures ────────────────────────────────────────────────
 
 class TestDeliveryFailure:
+    """A Telegram outage must not lose the cycle, the alert, or the cooldown."""
+
     def test_a_failed_send_does_not_abort_the_cycle(self):
         """Regression: _deliver raised out of poll_once, so one 500 lost every
         market after the failing one for that cycle."""
@@ -220,6 +228,8 @@ class TestExceptionClassification:
 # ── trade fetching and batching ──────────────────────────────────────
 
 class TestTradeBatching:
+    """Fetch trades when (and only when) the market has actually traded."""
+
     def test_fetches_trades_on_the_first_poll(self):
         p, k, s, _ = build([healthy_market("A")])
         p.poll_once()
@@ -264,6 +274,8 @@ class TestTradeBatching:
 # ── depth warnings ───────────────────────────────────────────────────
 
 class TestDepthWarning:
+    """A market can print a price and still be too thin to alert on."""
+
     def test_healthy_market_is_silent(self):
         assert depth_warning(healthy_market("A")) is None
 
@@ -291,6 +303,8 @@ class TestDepthWarning:
 # ── stdev dispatch ───────────────────────────────────────────────────
 
 class TestStdevDispatch:
+    """The pipeline routes a stdev market to check_stdev, not check_pct."""
+
     def test_uses_the_trade_series(self):
         markets = [healthy_market("A")]
         s = FakeStorage(trades={"A": [0.9, 0.58, 0.66, 0.65, 0.67, 0.64, 0.63]})
@@ -314,6 +328,8 @@ class TestStdevDispatch:
 # ── loop and shutdown ────────────────────────────────────────────────
 
 class TestLoop:
+    """run_forever stops promptly and outlives a single bad cycle."""
+
     def test_stop_ends_run_forever(self):
         p, k, s, _ = build([healthy_market("A")], poll_interval_seconds=1)
         threading.Timer(1.5, p.stop).start()

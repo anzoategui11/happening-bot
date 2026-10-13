@@ -49,6 +49,8 @@ class FakeStorage:
     """
 
     def __init__(self, ticks=None, trades=None):
+        # ticks/trades map ticker -> price list. `calls` records method order so
+        # a test can assert which series a check actually read from.
         self.ticks = dict(ticks or {})
         self.trades = dict(trades or {})
         self.calls = []          # method names, in order
@@ -87,6 +89,8 @@ class FakeKalshi:
     """Canned market records, and a counter so batching can be asserted."""
 
     def __init__(self, markets=None, trades=None):
+        # `trade_fetches` counts calls so batching can be asserted. Set
+        # `raise_on_market` to make the next get_market raise a given exception.
         self.markets = dict(markets or {})
         self.trade_history = dict(trades or {})
         self.market_calls = []
@@ -148,6 +152,7 @@ class Recorder:
 # ── config helpers ───────────────────────────────────────────────────
 
 def config_for(tickers=("A",), alert=None, **overrides):
+    """A small valid config over the given tickers; **overrides pokes one field."""
     kwargs = dict(poll_interval_seconds=120, max_stored_samples=50,
                   markets=markets_from_tickers(list(tickers), alert or MarketAlert()))
     kwargs.update(overrides)
@@ -155,6 +160,7 @@ def config_for(tickers=("A",), alert=None, **overrides):
 
 
 def stdev_alert(threshold=2.5, sample_size=20):
+    """Shorthand for a standard-deviation alert."""
     return MarketAlert(type=AlertType.STDEV, threshold=threshold,
                        sample_size=sample_size)
 

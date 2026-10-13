@@ -14,9 +14,9 @@
 
 CREATE TABLE IF NOT EXISTS market_ticks (
     id     BIGSERIAL PRIMARY KEY,
-    ticker TEXT        NOT NULL,
-    price  NUMERIC     NOT NULL,
-    ts     TIMESTAMPTZ NOT NULL DEFAULT now()
+    ticker TEXT        NOT NULL,                 -- Kalshi market ticker
+    price  NUMERIC     NOT NULL,                 -- last traded price, 0.00-1.00
+    ts     TIMESTAMPTZ NOT NULL DEFAULT now()    -- when the poll happened
 );
 
 CREATE INDEX IF NOT EXISTS market_ticks_ticker_ts_idx
@@ -26,10 +26,10 @@ CREATE INDEX IF NOT EXISTS market_ticks_ticker_ts_idx
 -- same window idempotent without guessing at timestamp collisions.
 CREATE TABLE IF NOT EXISTS market_trades (
     id       BIGSERIAL PRIMARY KEY,
-    trade_id TEXT        NOT NULL UNIQUE,
+    trade_id TEXT        NOT NULL UNIQUE,   -- Kalshi's UUID; makes inserts idempotent
     ticker   TEXT        NOT NULL,
-    price    NUMERIC     NOT NULL,
-    ts       TIMESTAMPTZ NOT NULL
+    price    NUMERIC     NOT NULL,          -- executed yes-side price
+    ts       TIMESTAMPTZ NOT NULL           -- the trade's own timestamp
 );
 
 CREATE INDEX IF NOT EXISTS market_trades_ticker_ts_idx

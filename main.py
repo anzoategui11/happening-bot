@@ -44,6 +44,7 @@ def private_key_path():
 
 
 def build():
+    """Wire up the Kalshi client, storage, and pipeline from the environment."""
     kalshi = KalshiClient(os.environ["KALSHI_KEY_ID"], private_key_path())
     # Both retention caps come from config, otherwise the windows the alerts were
     # validated against are not the ones Storage actually applies.
@@ -56,6 +57,7 @@ def build():
 
 
 def main():
+    """Dispatch on the CLI flags and exit. See the module docstring."""
     logging.basicConfig(
         level=logging.DEBUG if "--verbose" in sys.argv else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",

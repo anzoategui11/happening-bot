@@ -35,6 +35,7 @@ BALANCE_PATH = "/portfolio/balance"
 
 
 def load_key(pem_path):
+    """Read a private key the same way the client does (single-line tolerant)."""
     from kalshi_client import _load_pem
     return _load_pem(pem_path)
 
@@ -55,6 +56,7 @@ def check_roundtrip(key):
 
 
 def _pss():
+    """The RSA-PSS padding Kalshi expects (digest-length salt)."""
     return padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH)
 
 

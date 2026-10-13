@@ -12,6 +12,7 @@ from config import (AlertType, CONFIG, MarketAlert, MarketConfig, PipelineConfig
 
 
 def make(markets=("A",), alert=None, **overrides):
+    """Build a valid PipelineConfig, with **overrides to poke a single field."""
     kwargs = dict(poll_interval_seconds=120, max_stored_samples=50,
                   markets=markets_from_tickers(list(markets), alert))
     kwargs.update(overrides)
@@ -19,10 +20,13 @@ def make(markets=("A",), alert=None, **overrides):
 
 
 def pct(lookback=10, threshold=5.0):
+    """Shorthand for a percentage-move alert."""
     return MarketAlert(type=AlertType.PCT, threshold=threshold, lookback=lookback)
 
 
 class TestMarketAlert:
+    """MarketAlert rejects impossible settings at construction."""
+
     def test_rejects_non_positive_threshold(self):
         with pytest.raises(ValueError, match="threshold must be positive"):
             MarketAlert(threshold=0)
@@ -50,6 +54,8 @@ class TestMarketAlert:
 
 
 class TestPipelineConfig:
+    """Every cross-field rule PipelineConfig enforces at import."""
+
     def test_rejects_duplicate_tickers(self):
         with pytest.raises(ValueError, match="duplicate"):
             make(markets=("A", "A"))
@@ -136,6 +142,8 @@ class TestLiveConfig:
 
 
 class TestMarketsFromTickers:
+    """The helper that expands a ticker list into MarketConfigs."""
+
     def test_shares_one_alert_across_tickers(self):
         alert = MarketAlert(threshold=9.0)
         markets = markets_from_tickers(["A", "B"], alert)

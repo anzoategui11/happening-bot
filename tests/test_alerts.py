@@ -18,6 +18,8 @@ from conftest import FakeStorage
 # ── check_pct ────────────────────────────────────────────────────────
 
 class TestCheckPct:
+    """Percentage move against the polled tick series."""
+
     def test_fires_on_a_large_move(self):
         # 0.30 against 0.50 two samples back is -40.0%
         s = FakeStorage(ticks={"A": [0.30, 0.50, 0.50]})
@@ -81,6 +83,8 @@ class TestCheckPct:
 # ── check_stdev ──────────────────────────────────────────────────────
 
 class TestCheckStdevRaisesOnMisconfiguration:
+    """A sample_size below 3 is a config error, not a warm-up state."""
+
     @pytest.mark.parametrize("sample_size", [0, 1, 2])
     def test_sample_size_below_three_raises(self, sample_size):
         s = FakeStorage(trades={"A": [0.5, 0.6, 0.7]})
@@ -102,6 +106,8 @@ class TestCheckStdevRaisesOnMisconfiguration:
 
 
 class TestCheckStdevAgainstTrades:
+    """Z-score of the newest trade against the stored trade baseline."""
+
     def test_reads_the_trade_series_not_polls(self):
         s = FakeStorage(trades={"A": [0.9, 0.5, 0.5, 0.5]},
                         ticks={"A": [0.9, 0.5, 0.5, 0.5]})

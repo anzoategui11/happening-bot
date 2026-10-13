@@ -1,6 +1,14 @@
+"""Postgres persistence for both series, plus per-ticker retention.
+
+Storage owns the connection and every SQL statement. It is constructed with
+the two retention caps from config so the window the alerts are validated
+against is the one actually applied here.
+"""
+
 import psycopg2
 
 class Storage:
+    """Thin wrapper around a psycopg2 connection for the two series."""
     def __init__(self, dsn, max_samples=50, max_trades=500):
         self.dsn = dsn
         self.conn = psycopg2.connect(dsn)
@@ -22,6 +30,7 @@ class Storage:
         self.conn = psycopg2.connect(self.dsn)
 
     def insert_tick(self, ticker, price):
+        """Append one polled price, then enforce the per-ticker row cap."""
         with self.conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO market_ticks (ticker, price) VALUES (%s, %s)",
@@ -36,6 +45,11 @@ class Storage:
         self.conn.commit()
 
     def get_recent(self, ticker, n):
+        """Newest-first prices for a ticker.
+
+        check_pct relies on this ordering: prices[0] is the current tick.
+        Do not change the ORDER BY without changing the alert code too.
+        """
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT price FROM market_ticks WHERE ticker=%s ORDER BY ts DESC LIMIT %s",
@@ -62,6 +76,7 @@ class Storage:
                    ON CONFLICT (trade_id) DO NOTHING""",
                 [(t["trade_id"], ticker, t["price"], t["ts"]) for t in trades])
             added = cur.rowcount
+            # prune: keep only the most recent N trades per ticker
             cur.execute("""
                 DELETE FROM market_trades
                 WHERE ticker = %s AND id NOT IN (
@@ -72,6 +87,7 @@ class Storage:
         return added
 
     def get_recent_trades(self, ticker, n):
+        """Newest-first prices from the trade series (check_stdev's input)."""
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT price FROM market_trades WHERE ticker=%s ORDER BY ts DESC LIMIT %s",
@@ -79,6 +95,7 @@ class Storage:
             return [r[0] for r in cur.fetchall()]
 
     def count_trades(self, ticker):
+        """Total stored trades for a ticker, for backfill logging."""
         with self.conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM market_trades WHERE ticker=%s", (ticker,))
             return cur.fetchone()[0]

@@ -106,4 +106,4 @@ def happening_bot():
     poll_markets()
 
 
-happen = happening_bot()
+happen = happening_bot()  # instantiate the DAG so Airflow can discover it

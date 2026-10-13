@@ -8,12 +8,16 @@ from enum import Enum
 
 
 class AlertType(str, Enum):
-    PCT = "pct"
-    STDEV = "stdev"
+    """Which check decides whether a market's move is alertable."""
+
+    PCT = "pct"      # percentage move over the polled series
+    STDEV = "stdev"  # z-score against the trade series
 
 
 @dataclass(frozen=True)
 class MarketAlert:
+    """Per-market alert settings, validated on construction."""
+
     type: AlertType = AlertType.PCT
     threshold: float = 5.0    # net % (e.g. 5.0) or std-dev multiplier (e.g. 2.5)
     lookback: int = 10        # used when type == PCT
@@ -32,12 +36,16 @@ class MarketAlert:
 
 @dataclass(frozen=True)
 class MarketConfig:
+    """One tracked market and the alert rule that applies to it."""
+
     ticker: str
     alert: MarketAlert = field(default_factory=MarketAlert)
 
 
 @dataclass(frozen=True)
 class PipelineConfig:
+    """Whole-pipeline settings, validated at import time."""
+
     poll_interval_seconds: int
     max_stored_samples: int
     markets: list[MarketConfig] = field(default_factory=list)

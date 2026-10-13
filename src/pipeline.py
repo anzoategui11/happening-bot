@@ -61,6 +61,8 @@ def depth_warning(market):
 
 
 class Pipeline:
+    """Polls each configured market once per cycle, with cooldown and retries."""
+
     def __init__(self, kalshi, storage, config, notify=send_alert):
         self.kalshi = kalshi
         self.storage = storage

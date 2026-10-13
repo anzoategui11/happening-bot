@@ -1,7 +1,9 @@
+"""Telegram delivery for alerts: one sender, one chat-id discovery helper."""
+
 import os
 import requests
 
-API = "https://api.telegram.org"
+API = "https://api.telegram.org"  # Bot API base; the token goes in the path
 MAX_LEN = 4096  # Telegram's per-message hard limit
 
 
@@ -11,6 +13,7 @@ def send_alert(message):
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
     if len(message) > MAX_LEN:
         raise ValueError(f"message is {len(message)} chars, over Telegram's {MAX_LEN} limit")
+    # The token is part of the URL path; that is how the Bot API authenticates.
     r = requests.post(
         f"{API}/bot{token}/sendMessage",
         json={"chat_id": chat_id, "text": message, "disable_web_page_preview": True},
@@ -32,6 +35,7 @@ def discover_chat_id():
     if not r.ok:
         raise RuntimeError(f"Telegram API {r.status_code}: {r.text}")
     updates = r.json().get("result", [])
+    # The list is empty until someone has actually messaged the bot.
     if not updates:
         raise LookupError("no updates yet — send your bot a message first, then re-run")
     for u in updates:
